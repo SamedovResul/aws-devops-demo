@@ -1,0 +1,44 @@
+# Spin up a free S3-compatible sandbox (MinIO) every time the workspace starts
+ports:
+  - port: 9000
+    onOpen: ignore   # S3 API
+    visibility: public
+  - port: 9001
+    onOpen: open-preview  # MinIO Console (nice UI)
+    visibility: public
+
+tasks:
+  - name: S3 Sandbox
+    init: |
+      # Tools
+      sudo apt-get update -y
+      sudo apt-get install -y awscli
+      # MinIO server + client (mc)
+      curl -L -o minio https://dl.min.io/server/minio/release/linux-amd64/minio
+      chmod +x minio
+      curl -L -o mc https://dl.min.io/client/mc/release/linux-amd64/mc
+      chmod +x mc
+      mkdir -p /workspace/minio-data
+    command: |
+      # Start MinIO
+      export MINIO_ROOT_USER=admin
+      export MINIO_ROOT_PASSWORD=admin12345
+      ./minio server /workspace/minio-data --console-address ":9001" &
+      # Wait briefly for the server
+      sleep 4
+      # Get public URLs for this workspace’s forwarded ports
+      API_URL=$(gp url 9000)
+      CONSOLE_URL=$(gp url 9001)
+      echo "S3 API:      $API_URL"
+      echo "S3 Console:  $CONSOLE_URL"
+
+      # Configure MinIO client (mc) and create a practice bucket
+      ./mc alias set local "$API_URL" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" --api s3v4
+      ./mc mb -p local/practice || true
+
+      # Configure AWS CLI credentials (any region is fine)
+      aws configure set aws_access_key_id "$MINIO_ROOT_USER"
+      aws configure set aws_secret_access_key "$MINIO_ROOT_PASSWORD"
+      aws configure set default.region us-east-1
+
+      echo "Ready! Open the console above, or run AWS CLI with --endpoint-url $API_URL"
